@@ -14,7 +14,7 @@ and `Report_After.pdf` is a typesetting/assembly change.
 | Measure | Before | After |
 |---|---|---|
 | PDF pages | 51 | 55 (54 numbered + title page) |
-| LaTeX errors (`^! ` lines in the log) | **140** | **0** |
+| LaTeX errors (`^! ` lines in the log) | **139** (138 = caption-row `&` errors in 46 tables, +1 raw Unicode `≤`) | **0** |
 | `Misplaced \noalign` / `\omit` / `Extra alignment tab` | 46 × each | 0 |
 | Longtables | 49 | 51 |
 | Longtables that repeat their header on continuation pages | 4 | **51 (all)** |
@@ -31,7 +31,7 @@ Verification commands (both reports were compiled from the same design run, with
 the `pdflatex` temp directory kept so the log survives):
 
 ```bash
-grep -c '^! ' Report_After_kept.log            # 0   (Report_Before: 140)
+grep -c '^! ' Report_After_kept.log            # 0   (Report_Before: 139)
 grep -c 'begin{longtable}' Report_After.tex    # 51
 grep -c 'endhead'          Report_After.tex    # 51
 pdftotext -bbox Report_After.pdf - | ...       # 0 words below the footer baseline
@@ -75,7 +75,7 @@ is a table with no column headings in the PDF while the `.tex` looks correct.
 
 Fix (`styles._fix_caption_row`): append `\\` to any `\caption…` line that does not
 already end with one, and strip blank lines between `\begin{longtable}` and the
-caption. Error count dropped 140 → 2 immediately, and to 0 once the remaining
+caption. Error count dropped 139 → 2 immediately, and to 0 once the remaining
 Unicode character and the missing asset were handled.
 
 ### 3.2 Content painted over the footer (task item 2)
@@ -256,10 +256,15 @@ cd src && python -m osdagbridge.desktop      # GUI path, unchanged
 python drive/make_report.py Report_After
 ```
 
-The headless driver lives outside the repository (`drive/make_report.py`,
-`drive/ob_driver.py`); it only calls the public API —
+The headless driver is shipped with this submission (`make_report.py`,
+`ob_driver.py`, `keep_run.py`); it only calls the public API —
 `PlateGirderBridge.set_input()`, `.design()`, `.generate_design_report()` — so the
 report under test is exactly the one the GUI produces.
+
+The two deliverables come from two different trees and must be regenerated separately:
+`Report_After.pdf` from `report-latex-refactor`, and `Report_Before.pdf` from `dev`
+(d74f56d). Running the driver on the refactor branch with the stem `Report_Before`
+silently produces a ~55-page refactored render, not the 51-page baseline.
 
 ---
 
@@ -277,3 +282,18 @@ report under test is exactly the one the GUI produces.
   (51.137 mm vs L/600 = 50.0 mm on all four girders) — that is what the design code
   computes for the defaults, and the report reports it honestly (`FAIL` in
   Table 5.9 and the red bar in Figure 5.1).
+* The default design fails more than the deflection check. The driver run behind
+  `Report_After.pdf` ends with overall status `FAIL`
+  (`PASS / WARN / FAIL: 13 / 0 / 1`) and marks at least two further rows `*FAIL*`:
+  fatigue normal stress (145.45 vs 92.49, ratio 1.573) and intermediate-stiffener
+  leg ≤ H_limit (250.00 vs 169.03, ratio 1.479). The generator renders those rows
+  faithfully, which is the point of the task: the report is a reporting layer, and
+  fixing the underlying design is out of scope. The full console log is shipped as
+  `driver_run.log`.
+* Load-combination table row order follows dictionary iteration order and is not
+  stable between renders. The row set is identical every time (48 rows:
+  `BASIC_1..6`, `SLS_FREQUENT_1`, `SLS_QP_1..2`, `SLS_RARE_1..6`, `ULS`), as are the
+  page count (55) and every check result, but the sequence of those rows can differ,
+  so two renders of `Report_After.pdf` are not byte-identical (879,044 B vs 879,000 B
+  observed between two runs of the same code). Pinning the order means sorting the
+  combination names in `chap3.py`/`chap5.py` before table emission.
