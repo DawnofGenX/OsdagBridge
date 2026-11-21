@@ -6,15 +6,39 @@ from osdagbridge.core.utils.common import (
 )
 
 
+# Non-ASCII glyphs that pdflatex cannot render with the default font setup,
+# mapped to LaTeX that renders identically.  Applied AFTER character escaping
+# so the ``$``/backslash sequences survive.
+_UNICODE_MAP = [
+    ('∠', 'L'),            # angle sign in section designations
+    ('ⅹ', 'x'),            # small roman ten, used as "x" in designations
+    ('×', 'x'),            # multiplication sign
+    ('÷', r'$\div$'),
+    ('≤', r'$\leq$'),
+    ('≥', r'$\geq$'),
+    ('≠', r'$\neq$'),
+    ('≈', r'$\approx$'),
+    ('±', r'$\pm$'),
+    ('°', r'$^\circ$'),
+    ('µ', r'$\mu$'),
+    ('μ', r'$\mu$'),
+    ('Ω', r'$\Omega$'),
+    ('→', r'$\rightarrow$'),
+    ('←', r'$\leftarrow$'),
+    ('−', '-'),            # true minus sign
+    ('–', '--'),           # en dash
+    ('—', '---'),          # em dash
+    ('‘', '`'), ('’', "'"),
+    ('“', '``'), ('”', "''"),
+    ('…', r'\ldots{}'),
+]
+
+
 def _tex(value):
     """Escape a Python value for safe LaTeX embedding."""
     s = str(value) if value is not None else ''
     if not s:
         return r''
-    # Normalise non-ASCII glyphs from section designations (e.g. "∠ 100 ⅹ 100ⅹ 10")
-    # that pdflatex cannot render.
-    for uni, ascii_ in [('∠', 'L'), ('ⅹ', 'x'), ('×', 'x')]:
-        s = s.replace(uni, ascii_)
     s = s.replace('\\', r'\textbackslash{}')
     for ch, esc in [('&', r'\&'), ('%', r'\%'), ('$', r'\$'), ('#', r'\#'),
                     ('{', r'\{'), ('}', r'\}'),          
@@ -22,6 +46,8 @@ def _tex(value):
                     ('~', r'\textasciitilde{}'), ('^', r'\^{}')]:
         s = s.replace(ch, esc)
     s = s.replace(':', r':\allowbreak{}')
+    for uni, latex in _UNICODE_MAP:
+        s = s.replace(uni, latex)
     return s
 
 

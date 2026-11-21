@@ -129,6 +129,11 @@ from .chap6 import ch6_drawings
 from .chap7 import ch7_quantities
 from .chap8 import ch8_design_log
 from .chap9 import references
+from .styles import apply_longtable_headers, latex_style_block
+try:  # matplotlib is an optional dependency: without it, charts are omitted
+    from .charts import chapter5_charts, chapter7_charts
+except Exception:  # pragma: no cover - defensive
+    chapter5_charts = chapter7_charts = None
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +161,6 @@ def preamble(project_name, job_number, report_date, report_version='Rev 0'):
 \documentclass[12pt,a4paper]{report}
 
 % Packages
-\usepackage[a4paper, margin=1in]{geometry}
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{amssymb}
@@ -171,12 +175,6 @@ def preamble(project_name, job_number, report_date, report_version='Rev 0'):
 \usepackage{enumitem}
 \usepackage{caption}
 
-\captionsetup{
-    labelfont=bf,
-    justification=raggedright,
-    singlelinecheck=false,
-    format=plain
-}
 \usepackage{subcaption}
 \usepackage{multirow}
 \usepackage{colortbl}
@@ -189,24 +187,16 @@ def preamble(project_name, job_number, report_date, report_version='Rev 0'):
 \usepackage{makecell}
 \usepackage{etoolbox}
 \usepackage{needspace}
+""" + latex_style_block() + r"""
 
 \numberwithin{table}{chapter}
 \numberwithin{figure}{chapter}
-% Table layout and spacing: consistent padding, row height, and longtable pre/post skips
-\setlength{\tabcolsep}{6pt}
-\renewcommand{\arraystretch}{1.12}
-\setlength{\LTpre}{0pt}
-\setlength{\LTpost}{6pt}
-% Table rules (outline thickness) and small extra row height for clarity
-\setlength{\arrayrulewidth}{0.5pt}
-\setlength{\extrarowheight}{0.6pt}
 
 % Prevent tables from overflowing past the page bottom:
 % if fewer than 5 baseline-skips remain, break to the next page first.
 \BeforeBeginEnvironment{table}{\needspace{5\baselineskip}}
 \BeforeBeginEnvironment{longtable}{\needspace{5\baselineskip}}
 
-\definecolor{osdagGreen}{HTML}{91B014}
 
 \fancypagestyle{main}{
   \fancyhf{}
@@ -257,9 +247,6 @@ def preamble(project_name, job_number, report_date, report_version='Rev 0'):
 % Custom Commands
 \newcommand{\placeholder}[1]{\textit{\textless #1\textgreater}}
 \newcommand{\todo}[1]{\colorbox{yellow}{TODO: #1}}
-\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
-\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
-\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
 
 % Software-default asterisk
 \newcommand{\sdstar}{\textsuperscript{*}}
@@ -864,6 +851,28 @@ def generate_report(payload, request):
         # Write to temp dir first, compile there, then copy back
         with tempfile.TemporaryDirectory() as tmp_dir:
 
+            # ── Material quantities (Chapter 7 table and charts) ───────────────
+            quantities = calculate_material_quantities(payload.inputs, payload.output_dict)
+            payload.inputs.update(quantities)
+
+            # ── Bridge facade: shared by the chart builders and Chapter 5 ─────
+            bridge = ReportDataBridge(payload.output_dict, payload.inputs, payload)
+
+            # ── Charts (matplotlib/Agg -> PNG bytes).  They ride the same
+            #    write loop as the CAD figures, and a failure here is logged
+            #    but never aborts the report. ─────────────────────────────────
+            if payload.options.include_figures:
+                if chapter5_charts is not None:
+                    try:
+                        payload.figure_data.update(chapter5_charts(bridge))
+                    except Exception as exc:
+                        logger.warning("Chapter 5 charts failed: %s", exc)
+                if chapter7_charts is not None:
+                    try:
+                        payload.figure_data.update(chapter7_charts(payload.inputs))
+                    except Exception as exc:
+                        logger.warning("Chapter 7 charts failed: %s", exc)
+
             # ── Write figure bytes into tmp_dir/images/ then free RAM immediately ──
             tmp_images = os.path.join(tmp_dir, 'images')
             os.makedirs(tmp_images, exist_ok=True)
@@ -895,12 +904,7 @@ def generate_report(payload, request):
                 shutil.copy2(org_logo_src, os.path.join(tmp_assets, 'org_logo.png'))
                 org_logo_latex = 'assets/org_logo.png'
 
-            # Compute and inject quantities for Chapter 7
-            quantities = calculate_material_quantities(payload.inputs, payload.output_dict)
-            payload.inputs.update(quantities)
-
             # ── Assemble LaTeX document (fig_paths now has tmp_dir paths) ──
-            bridge = ReportDataBridge(payload.output_dict, payload.inputs, payload)
             span_m = float(payload.inputs.get(KEY_SPAN, 0) or 0)
 
             doc_parts = []
@@ -924,11 +928,11 @@ def generate_report(payload, request):
             if 'analysis' in secs:
                 doc_parts.append(ch4_analysis(payload.analysis_summary, fig_paths, bridge, span_m))
             if 'design_checks' in secs:
-                doc_parts.append(ch5_design_checks(payload.design_checks, bridge))
+                doc_parts.append(ch5_design_checks(payload.design_checks, bridge, fig_paths))
             if 'drawings' in secs and payload.options.include_figures:
                 doc_parts.append(ch6_drawings(fig_paths))
 
-            doc_parts.append(ch7_quantities(payload.inputs))
+            doc_parts.append(ch7_quantities(payload.inputs, fig_paths))
 
             mode = str(payload.inputs.get(KEY_DESIGN_MODE, "Optimized")).strip().lower()
             is_custom = mode in {"custom", "customized"}
@@ -942,10 +946,12 @@ def generate_report(payload, request):
             full_tex = "\n".join(doc_parts)
 
 
-            # NOTE: longtable header repetition is handled per-table in each
-            # chapter file (e.g. \endfirsthead / \endhead).  No automatic
-            # post-processing is applied here to avoid mis-ordering captions
-            # and column headings.
+            # ── Longtable post-processing ──────────────────────────────────
+            # styles.apply_longtable_headers() gives every longtable a repeated
+            # header (\endfirsthead / \endhead) and repairs captions that were
+            # missing their terminating "\\", which was the single largest
+            # source of "Misplaced \noalign" errors in the previous build.
+            full_tex = apply_longtable_headers(full_tex)
 
             tmp_tex = os.path.join(tmp_dir, request.file_stem + '.tex')
             tmp_pdf = os.path.join(tmp_dir, request.file_stem + '.pdf')
@@ -953,8 +959,10 @@ def generate_report(payload, request):
             with open(tmp_tex, 'w', encoding='utf-8') as f:
                 f.write(full_tex)
 
-            # Compile twice for TOC and references
-            for _ in range(2):
+            # Compile three times: the TOC and the longtable page breaks settle
+            # in the second pass, and the \pageref{LastPage} total printed in the
+            # footer only becomes correct once the page count has stopped moving.
+            for _ in range(3):
                 try:
                     kwargs = {
                         'cwd': tmp_dir,

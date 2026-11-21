@@ -119,12 +119,16 @@ def ch3_loads(input_dict):
 
     lanes = input_dict.get(KEY_WC_LD_LANE_TABLE_COUNT)
     braking_force_str = ""
+    braking_value_str = "N/A"
+    braking_unit = "--"
     if lanes not in (None, ""):
         try:
             lanes_int = int(lanes)
             braking_force_t = IRC6_2017.cl_211_2_braking_force(lanes_int)
             braking_force_kN = braking_force_t * 9.81
             braking_force_str = f"{braking_force_kN:.2f} kN ({braking_force_t:.2f} tonnes)"
+            braking_value_str = f"{braking_force_kN:.2f}"
+            braking_unit = f"kN ({braking_force_t:.2f} t)"
         except Exception:
             braking_force_str = "N/A"
     else:
@@ -299,19 +303,36 @@ This section summarizes all loads applied to the bridge and the load combination
 \hline
 \end{longtable}
 
+Vehicle live loads and footway live loads are reported separately: they act on
+different parts of the deck, follow different IRC~6 clauses, and are applied in
+the longitudinal analysis as distinct load cases, so they are listed here as
+distinct tables.
+
 \vspace{1em}
-\begin{longtable}{|L{5.5cm}|p{10.0cm}|}
-\caption{\textbf{Live Loads (LL)}}
+\begin{longtable}{|L{5.5cm}|L{7.0cm}|C{2.5cm}|}
+\caption{\textbf{Vehicle Live Loads (LL) --- per IRC 6}}
+\label{tab:ll-vehicle}\\
 \hline
-\textbf{parameter} & \textbf{value} \\
+\textbf{Parameter} & \textbf{Value} & \textbf{Unit} \\
 \hline
-\textnormal{Vehicles Considered} & """ + _tex(vehicles_str) + r""" \\[6pt]
+\textnormal{Vehicles Considered} & """ + _tex(vehicles_str) + r""" & -- \\[6pt]
 \hline
-\textnormal{Impact Factor (IRC 6)} & """ + _tex(impact_factor_str) + r""" \\[6pt]
+\textnormal{Impact Factor (IRC 6)} & """ + _tex(impact_factor_str) + r""" & -- \\[6pt]
 \hline
-\textnormal{Braking Load (IRC 6)} & """ + _tex(braking_force_str) + r""" \\[6pt]
+\textnormal{Braking Load (IRC 6)} & """ + _tex(braking_value_str) + r""" & """ + _tex(braking_unit) + r""" \\[6pt]
 \hline
-\textnormal{Footpath Live Load (if applicable)} & """ + (_render_value(input_dict, KEY_LL_FOOTPATH_PRESSURE_VALUE, ' kN/m\\textsuperscript{2}')) + r""" \\[6pt]
+\end{longtable}
+
+\vspace{1em}
+\begin{longtable}{|L{5.5cm}|L{7.0cm}|C{2.5cm}|}
+\caption{\textbf{Footway Live Load --- per IRC 6}}
+\label{tab:ll-footway}\\
+\hline
+\textbf{Parameter} & \textbf{Value} & \textbf{Unit} \\
+\hline
+\textnormal{Footpath Pressure Mode} & """ + (_render_value(input_dict, KEY_LL_FOOTPATH_PRESSURE_MODE)) + r""" & -- \\[6pt]
+\hline
+\textnormal{Footpath Live Load} & """ + (_render_value(input_dict, KEY_LL_FOOTPATH_PRESSURE_VALUE)) + r""" & kN/m\textsuperscript{2} \\[6pt]
 \hline
 \end{longtable}
 

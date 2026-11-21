@@ -142,10 +142,11 @@ from osdagbridge.core.utils.common import (
 )
 
 from osdagbridge.core.reports.report_utils import _tex, _render_value, get_girder_entries
+from .styles import table_spacing
 
 if TYPE_CHECKING:
     pass
-def ch5_design_checks(checks_data, bridge) -> str:
+def ch5_design_checks(checks_data, bridge, fig_paths=None) -> str:
     """Chapter 5 — Design Checks.
 
     Parameters
@@ -154,6 +155,11 @@ def ch5_design_checks(checks_data, bridge) -> str:
         Raw checks payload (currently unused; data is sourced from bridge).
     bridge : ReportDataBridge
         Provides input_dict, output_dict, and helper methods.
+    fig_paths : dict, optional
+        Figure name -> path written by ``generate_report()``.  The utilisation
+        ratio panels (``ur_girders``, ``ur_deck_slab``, ``ur_cross_bracing``,
+        ``ur_end_diaphragm``) are drawn in ``charts.py``; any that are missing
+        simply do not appear in Section 5.5.
     """
     girder_entries = get_girder_entries(bridge.input_dict)
     if not girder_entries:
@@ -1065,6 +1071,51 @@ Fatigue Shear Resistance, $Q_r$ & IRC 22 Table 8 ($\phi d$, $N_{sc}$) & """
     ]
     t522_content = "\n".join(_t522)
 
+    # ── §5.5.1: utilisation ratio charts ────────────────────────────────────
+    # Drawn in charts.py from the same numbers Tables 5.1-5.22 print, so the
+    # bars and the tables can never disagree.
+    _ur_figures = []
+    for _key, _caption, _label in [
+        ("ur_girders", "Utilisation ratio of the steel plate girders, by check",
+         "fig:ur-girders"),
+        ("ur_deck_slab", "Utilisation ratio of the concrete deck slab, by check",
+         "fig:ur-deck-slab"),
+        ("ur_cross_bracing", "Utilisation ratio of the cross bracing, by panel",
+         "fig:ur-cross-bracing"),
+        ("ur_end_diaphragm", "Utilisation ratio of the end diaphragms, by panel",
+         "fig:ur-end-diaphragm"),
+    ]:
+        _path = (fig_paths or {}).get(_key)
+        if not _path:
+            continue
+        _ur_figures.append(
+            r"""\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{""" + _path + r"""}
+\caption{""" + _caption + r"""}
+\label{""" + _label + r"""}
+\end{figure}"""
+        )
+    _ur_block = ""
+    if _ur_figures:
+        _ur_block = (
+            r"""
+\clearpage
+\subsection{Utilisation Ratio Charts}
+\label{sec:ur-charts}
+
+Table~5.22 lists the governing utilisation ratio (UR = demand / capacity) of
+every component. The charts below plot the same numbers, so the reserve in each
+component can be read at a glance.
+
+\vspace{0.4em}
+""" + "\n".join(_ur_figures) + r"""
+Bars are green below UR = 0.85, amber between 0.85 and 1.00, and red above the
+dashed UR = 1.0 limit line. A value printed inside a bar is a near-limit or
+failing check whose label would otherwise sit on that limit line.
+"""
+        )
+
     return r"""
 \chapter{Design Checks}
 
@@ -1408,7 +1459,7 @@ Cross bracing between adjacent plate girders provides lateral stability during c
 
 \vspace{0.4em}
 \noindent
-\setlength{\tabcolsep}{4pt}
+""" + table_spacing("compact") + r"""
 \setlength\LTleft{0pt}
 \setlength\LTright{\fill}
 
@@ -1452,7 +1503,7 @@ End diaphragms at the supports transfer transverse loads to the bearings, restra
 
 \vspace{0.4em}
 \noindent
-\setlength{\tabcolsep}{4pt}
+""" + table_spacing("compact") + r"""
 \setlength{\LTleft}{0pt}
 \setlength{\LTright}{\fill}
 
@@ -1501,5 +1552,4 @@ End diaphragms at the supports transfer transverse loads to the bearings, restra
 \end{longtable}
 \noindent\textit{Note: UR = Demand / Capacity. All values $\leq 1.0$ indicate passing checks. The governing check for each component is highlighted in the individual design check sections above.}
 
-"""
-
+""" + _ur_block + r""""""
